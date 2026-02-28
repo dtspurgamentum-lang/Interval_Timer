@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Tabata Pro Timer</title>
-    <!-- Roboto Mono for zero-shake digits -->
+    <!-- Roboto Mono ensures every character (including colons) has identical width -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -29,7 +29,7 @@
             flex-direction: column;
         }
 
-        /* Top Section: Timer */
+        /* Top Section: Timer Display */
         .timer-container {
             flex: 1;
             display: flex;
@@ -50,27 +50,31 @@
         .clock-wrapper {
             display: flex;
             align-items: baseline;
+            justify-content: center;
             font-family: 'Roboto Mono', monospace;
             user-select: none;
         }
 
+        /* Fixed-width containers to center colons and prevent digit shake */
         .time-unit {
             font-size: 12vw;
-            width: 14.5vw; 
+            width: 15vw; 
             text-align: center;
         }
 
         .colon {
             font-size: 12vw;
-            width: 4vw;
+            width: 5vw;
             text-align: center;
+            display: inline-block;
         }
 
         .tenths {
-            font-size: 9.6vw; /* 80% size */
+            font-size: 9.6vw; /* Exactly 80% of main digits */
             width: 10vw;
             margin-left: 2px;
             color: var(--apple-light-gray);
+            text-align: left;
         }
 
         /* Bottom Section: Controls */
@@ -128,14 +132,14 @@
         #startBtn { background-color: var(--apple-orange); }
         #resetBtn { background-color: var(--apple-dark-gray); }
 
-        /* Landscape Mobile optimization */
+        /* Landscape Mobile Optimization */
         @media (max-height: 500px) {
             #status-indicator { font-size: 3.5rem; width: 160px; }
-            .time-unit, .colon { font-size: 18vh; width: 22vh; }
-            .colon { width: 6vh; }
+            .time-unit { font-size: 18vh; width: 23vh; }
+            .colon { font-size: 18vh; width: 7vh; }
             .tenths { font-size: 14.4vh; width: 14vh; }
             .controls-bar { padding: 10px; gap: 15px; }
-            .btn { padding: 10px 18px; min-width: 90px; }
+            .btn { padding: 10px 18px; min-width: 100px; }
             input { width: 80px; padding: 8px; }
         }
     </style>
@@ -174,12 +178,11 @@
         let audioCtx = null;
         let timerIdx = null;
         let isRunning = false;
-        let phase = 'START'; // START, WORK, REST
+        let phase = 'START'; 
         let round = 1;
         let timeLeft = 10000;
         let lastBeepSec = -1;
 
-        // Display Elements
         const elH = document.getElementById('hh');
         const elM = document.getElementById('mm');
         const elS = document.getElementById('ss');
@@ -191,28 +194,39 @@
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
         }
 
+        // Deep Horn (Sawtooth) for Work Transition
+        const playDeepHorn = () => {
+            initAudio();
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(140, now);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(now + 1.2);
+        };
+
+        // Realistic Boxing Bell for Rest Transition
         const playBoxingBellSingle = () => {
             initAudio();
             const now = audioCtx.currentTime;
             const frequencies = [880, 1760, 2460, 3504]; 
-
             frequencies.forEach((freq, index) => {
-                // Main tone and +5% pitch tone
                 [freq, freq * 1.05].forEach(f => {
                     const osc = audioCtx.createOscillator();
                     const gain = audioCtx.createGain();
                     osc.type = 'sine';
                     osc.frequency.setValueAtTime(f, now);
-
                     gain.gain.setValueAtTime(0.2 / frequencies.length, now);
                     const decay = (1.5 - (index * 0.2)) * 0.5; 
                     gain.gain.exponentialRampToValueAtTime(0.01, now + decay);
-
                     osc.connect(gain);
                     gain.connect(audioCtx.destination);
                     osc.start();
@@ -238,12 +252,6 @@
             gain.connect(audioCtx.destination);
             osc.start();
             osc.stop(audioCtx.currentTime + duration);
-        }
-
-        function playTripleBeep() {
-            [0, 0.4, 0.8].forEach(delay => {
-                setTimeout(() => playBeep(528, 0.3), delay * 1000);
-            });
         }
 
         function parseTime(str) {
@@ -286,11 +294,7 @@
 
         function toggleTimer() {
             initAudio();
-            if (isRunning) {
-                stopTimer();
-            } else {
-                startTimer();
-            }
+            if (isRunning) { stopTimer(); } else { startTimer(); }
         }
 
         function startTimer() {
@@ -306,15 +310,15 @@
                     const restMs = parseTime(document.getElementById('restInput').value);
 
                     if (phase === 'START') {
-                        playBoxingBellDouble();
+                        playDeepHorn(); // End of Prep -> Work
                         phase = 'WORK';
                         timeLeft = workMs;
                     } else if (phase === 'WORK') {
-                        playTripleBeep();
+                        playBoxingBellDouble(); // End of Work -> Rest
                         phase = 'REST';
                         timeLeft = restMs;
                     } else {
-                        playBoxingBellDouble();
+                        playDeepHorn(); // End of Rest -> Work
                         phase = 'WORK';
                         round++;
                         timeLeft = workMs;
@@ -332,20 +336,17 @@
             startBtn.style.backgroundColor = 'var(--apple-orange)';
         }
 
-        function updateSettings() {
-            resetTimer();
-        }
+        function updateSettings() { resetTimer(); }
 
         function resetTimer() {
             stopTimer();
             phase = 'START';
             round = 1;
-            timeLeft = 10000; // Reset to 10s prep
+            timeLeft = 10000;
             lastBeepSec = -1;
             updateUI();
         }
 
-        // Initial UI Draw
         updateUI();
     </script>
 </body>
